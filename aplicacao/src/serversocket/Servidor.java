@@ -1,5 +1,4 @@
-
-package serversocket;
+package server.socket;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -7,115 +6,154 @@ import java.io.InputStreamReader;
 import java.io.PrintStream;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
-public class Servidor extends Thread
-{
+/**
+ * Classe Servidor
+ * 
+ * @author Lucas Benjamin
+ * @since <setembro>/<2018>
+ */
+public class Servidor extends Thread {
 
-   private Socket conexao;
-   private static int PORTA_PADRAO = 12345;
-   private static Map<String, PrintStream> USUARIOS_CONECTADOS;
-   private static List<String> LISTA_DE_NOMES = new ArrayList<String>();
-   private String nomeUsuario;
+	private static int PORTA_PADRAO = 10588;
+	private static Map<String, PrintStream> USUARIOS_CONECTADOS = new HashMap<>();
+	private Socket conexao;
+	private String nomeUsuario;
+	private boolean usuarioLogado;
 
+	/**
+	 * Construtor que recebe do cliente o objeto socket dele
+	 * 
+	 * @param socket Objeto Socket
+	 */
+	public Servidor(Socket socket) {
+		this.conexao = socket;
+	}
 
-   public Servidor(Socket socket)
-   {
-      this.conexao = socket;
-   }
+	public static void main(String[] args) throws IOException {
 
-   public static void main(String[] args)
-   {
-      USUARIOS_CONECTADOS = new HashMap<String, PrintStream>();
-      
-      try
-      {
-         ServerSocket server = new ServerSocket(PORTA_PADRAO);
-         while (true)
-         {
-            Socket conexao = server.accept();
-            Thread thread = new Servidor(conexao);
-            thread.start();
-         }
-      }
-      catch (IOException e)
-      {
+		try {
 
-      }
-   }
+			ServerSocket server = new ServerSocket(PORTA_PADRAO);
+			System.out.println("O sistema esta escutando na porta " + server.getLocalPort());
 
-   @Override
-   public void run()
-   {
+			// Fica esperando novas conexões, aceita e cria nova thread com conexão
+			while (true) {
+				Socket conexao = server.accept();
+				Thread threadConexao = new Servidor(conexao);
+				threadConexao.start();
+			}
 
-      String msg = null;
+		} catch (IOException e) {
+			System.out.println("[LOG] IOException: " + e);
+		}
 
-      try
-      {
-         BufferedReader entrada = new BufferedReader(new InputStreamReader(this.conexao.getInputStream()));
-         PrintStream saida = new PrintStream(this.conexao.getOutputStream());
-         
-         String login = entrada.readLine();
-         if (validaUsuario(login))
-         {
-            this.nomeUsuario = login;
-            LISTA_DE_NOMES.add(this.nomeUsuario);
-            USUARIOS_CONECTADOS.put(this.nomeUsuario, saida);
+	}
 
-            System.out.println("O usuario " + this.nomeUsuario + " Conectou ao chat!");
-            saida.println("Usuarios Conectados:" + LISTA_DE_NOMES.toString());
-         }
-         else
-            return;
+	/**
+	 * Método responsável pelo pela execução da Thread que vai
+	 * 
+	 * @param mensagem String com a mensagem a ser enviada para os clientes
+	 * @param saida    Objeto PrintStream com a conexão de saida do cliente
+	 * @return void
+	 */
+	@Override
+	public void run() {
 
-         while (true)
-         {
-            msg = entrada.readLine();
-            System.out.println("[LOG] Mensagem de " + this.nomeUsuario + " : " + msg);
-            send(saida, "Escreveu", msg);
-         }
+		try {
 
-      }
-      catch (IOException e)
-      {
+			PrintStream saida = new PrintStream(this.conexao.getOutputStream());
+			BufferedReader entrada = new BufferedReader(new InputStreamReader(this.conexao.getInputStream()));
+			String mensagem = null;
 
-      }
-   }
+			this.nomeUsuario = entrada.readLine();
 
-   private boolean validaUsuario(String nomeUsuario)
-   {
+			if (validaUsuario(this.nomeUsuario)) {
 
-      if (nomeUsuario.isEmpty())
-      {
-         System.out.println("Nome do usuário não pode ser vazio");
-         return false;
-      }
-      for (int i = 0; i < LISTA_DE_NOMES.size(); i++)
-      {
-         if (LISTA_DE_NOMES.get(i).equalsIgnoreCase(nomeUsuario))
-         {
-            System.out.println("Nome do usuário já existe no Chat");
-            return false;
-         }
-      }
+				logarUsuario(this.nomeUsuario, saida);
 
-      return true;
-   }
+				System.out.println("O usuário [" + this.nomeUsuario + "] se conectou ao chat...");
+				saida.println("[SERV] : Usuarios conectados " + USUARIOS_CONECTADOS.keySet().toString());
 
-   private void send(PrintStream saida, String acao,String mensagem)
-   {
+				// Envia ao sender as mensagens digitadas
+				mensagem = entrada.readLine();
+				while (mensagem != null && !mensagem.equalsIgnoreCase("sairdochat")) {
+					enviar(saida, mensagem);
+					mensagem = entrada.readLine();
+				}
 
-      for (Map.Entry<String, PrintStream> cliente : USUARIOS_CONECTADOS.entrySet())
-      {
-         if (cliente.getValue() != saida)
-         {
-            PrintStream chat = cliente.getValue();
-            chat.println(cliente.getKey() + "  : " + mensagem);
-         }
-      }
+			} else {
+				saida.println("Seu nome de usuário é invalido. Tente novamente");
+			}
 
-   }
+			// Fecha conexão e exclui usuario caso a mensagem seja nula ou vazia
+			deslogarUsuario(this.nomeUsuario);
+			this.conexao.close();
+
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+
+	}
+
+	/**
+	 * @param mensagem String com a mensagem a ser enviada para os clientes
+	 * @param saida    Objeto PrintStream com a conexão de saida do cliente
+	 * @return void
+	 */
+	protected void enviar(PrintStream saida, String mensagem) {
+
+		for (Map.Entry<String, PrintStream> usuario : USUARIOS_CONECTADOS.entrySet()) {
+			PrintStream chat = usuario.getValue();
+			chat.println(this.nomeUsuario + " : " + mensagem);
+		}
+	}
+
+	/**
+	 * @param loginUsuario String com o login do usuário
+	 * @param saida        Objeto PrintStream com a conexão de saida do cliente
+	 * @return void
+	 */
+	private void logarUsuario(String loginUsuario, PrintStream saida) {
+
+		USUARIOS_CONECTADOS.put(loginUsuario, saida);
+		this.usuarioLogado = true;
+
+	}
+
+	/**
+	 * @param loginUsuario String com o login do usuário
+	 * @return void
+	 */
+	private void deslogarUsuario(String loginUsuario) {
+
+		USUARIOS_CONECTADOS.remove(loginUsuario);
+		this.usuarioLogado = false;
+
+	}
+
+	/**
+	 * @param loginUsuario String com o login do usuário
+	 * @return boolean caso o usuário passe em todos as validações retorna true
+	 */
+	protected boolean validaUsuario(String loginUsuario) {
+
+		for (Map.Entry<String, PrintStream> usuario : USUARIOS_CONECTADOS.entrySet()) {
+
+			// não pode haver usuario logado com o mesmo nome
+			if (usuario.getKey().equalsIgnoreCase(loginUsuario)) {
+				System.out.println("Usuário já logado no sistema");
+				return false;
+			}
+			// login não pode ser vazio
+			if (loginUsuario.trim().equals("")) {
+				System.out.println("O nome do usuario não pode ser nulo");
+				return false;
+			}
+		}
+		return true;
+	}
+
 }
